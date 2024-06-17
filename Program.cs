@@ -55,7 +55,7 @@ internal partial class Program : ProgramBase
         bool afterProcessing = settings.ContainsKey("after");
 
         ConcurrentBag<string> processedFiles = new();
-        var semaphore = new SemaphoreSlim(5); // Limit to 5 concurrent tasks
+        var semaphore = new SemaphoreSlim(9); // Limit to 9 concurrent tasks
 
         foreach (var fileType in value)
         {
