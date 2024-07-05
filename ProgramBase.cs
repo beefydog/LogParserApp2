@@ -1,6 +1,4 @@
-﻿using System.Security.Cryptography;
-
-namespace LogParserApp;
+﻿namespace LogParserApp;
 
 public class ProgramBase
 {
@@ -45,8 +43,12 @@ public class ProgramBase
             settings["after"] = ["true"]; // Indicate that the 'after' argument is present
         }
 
+        // Add support for the 'quiet mode' argument
+        if (settings.TryGetValue("q", out List<string>? value4) && value4.Count == 0)
+        {
+            settings["q"] = ["true"]; // Indicate that the 'q' argument is present
+        }
+
         return settings;
     }
-
-
 }

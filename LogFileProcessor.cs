@@ -8,6 +8,7 @@ using EFCore.BulkExtensions;
 using LogParserApp.Entities;
 using LogParserApp.Utilities;
 using static LogParserApp.Utilities.Extensions;
+using static LogParserApp.Utilities.Formatting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
@@ -192,7 +193,7 @@ namespace LogParserApp
                     ParsedLogId = parsedLogId,
                     LineNum = lineNum,
                     EntryDate = DateTime.ParseExact(dateTimePart, "ddd, dd MMM yyyy HH:mm:ss", CultureInfo.InvariantCulture),
-                    IPaddress = ipPart,
+                    IPaddress = FormatIPAddress(ipPart),
                     Status = statusPart,
                     Action = action,
                     Details = details
@@ -204,7 +205,7 @@ namespace LogParserApp
             }
         }
 
-        // generates all regexes at compile time
+        
         [GeneratedRegex(@"^(.*?)_\d+$")]
         private static partial Regex FileTypeRegex();
 

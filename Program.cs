@@ -13,19 +13,28 @@ using LogParserApp.Utilities;
 using Spectre.Console;
 using System.Collections.Concurrent;
 using System.Threading;
+using NetTopologySuite.Index.Quadtree;
+using System.Runtime.CompilerServices;
 
 internal partial class Program : ProgramBase
 {
+    public static bool QuietMode { get; set; } = false;
+
     public static async Task Main(string[] args)
     {
         var settings = ParseArguments(args);
 
-        if (!settings.TryGetValue("filetype", out List<string>? value) || value.Count == 0)
+        QuietMode = settings.ContainsKey("q");
+
+        if (!settings.TryGetValue("filetype", out List<string>? value) || value.Count == 0) 
         {
             AnsiConsole.MarkupLine("Please specify at least one filetype using [green3]-filetype \"[gold3]smtp[/],[gold3]pop3[/]\"[/].");
             AnsiConsole.MarkupLine("Valid log file types: [gold3]accounts[/],[gold3]contentfiltering[/],[gold3]imap4[/],[gold3]outmail[/],[gold3]outmailfail[/],[gold3]pop3[/],[gold3]pop3retr[/],[gold3]remoteadmin[/],[gold3]server[/],[gold3]smtp[/],[gold3]webmail[/]");
             Console.WriteLine();
-            AnsiConsole.MarkupLine("To specify post processing options: use the [green3]-postprocess[/] switch followed by [green3]\"[gold3]archive[/]\"[/] or [green3]\"[gold3]delete[/]\"[/] ");
+            AnsiConsole.MarkupLine("To specify the folder path: use the [green3]-folderpath[/] switch followed by [green3]\"[gold3]YourFolderPath[/]\"[/] as in: ");
+            AnsiConsole.MarkupLine("[green3]-folderpath \"[yellow3_1]C:\\MyEmailLogs[/]\" [/]");
+            Console.WriteLine();
+            AnsiConsole.MarkupLine("To specify post processing options: use the [green3]-postprocess[/] switch followed by [green3]\"[gold3]archive[/]\"[/], [green3]\"[gold3]delete[/]\"[/] or [green3]\"[gold3]keep[/]\"[/]  ");
             Console.WriteLine();
             AnsiConsole.MarkupLine("If archiving, specify the path after the [green3]\"[gold3]archive[/]\"[/] option as in: ");
             AnsiConsole.MarkupLine("[green3]-postprocess \"[gold3]archive[/]\" \"[yellow3_1]C:\\MyLogArchive[/]\"[/]");
@@ -34,10 +43,13 @@ internal partial class Program : ProgramBase
             AnsiConsole.MarkupLine("[green3]-postprocess \"[gold3]archive[/]\" \"[yellow3_1]C:\\MyLogArchive[/]\" -after[/]");
             Console.WriteLine();
             AnsiConsole.MarkupLine("Example with all options specified:");
-            AnsiConsole.MarkupLine("[green4]LogParserApp[/] [green3]-filetype \"[gold3]smtp[/],[gold3]pop3[/],[gold3]imap4[/]\"  -postprocess \"[gold3]archive[/]\" \"[yellow3_1]C:\\MyLogArchive[/]\" -after[/]");
+            AnsiConsole.MarkupLine("[green4]LogParserApp[/] [green3]-filetype \"[gold3]smtp[/],[gold3]pop3[/],[gold3]imap4[/]\" [green3]-folderpath \"[yellow3_1]C:\\MyEmailLogs[/]\" [/] -postprocess \"[gold3]archive[/]\" \"[yellow3_1]C:\\MyLogArchive[/]\" -after[/]");
             AnsiConsole.MarkupLine("This would process [gold3]smtp[/], [gold3]pop3[/] and [gold3]imap4[/] logs, archive them and do so after files parsed successfully.");
             Console.WriteLine();
             AnsiConsole.MarkupLine("The default archive folder path can be specified in the [yellow3_1]appsettings.json[/] file");
+            Console.WriteLine();
+            AnsiConsole.MarkupLine("Enable quiet mode by appending the [green3]-q[/] switch to disable all output.");
+
             return;
         }
 
@@ -54,12 +66,15 @@ internal partial class Program : ProgramBase
         string postProcess = settings.TryGetValue("postprocess", out List<string>? value3) && value3.Count > 0 ? value3[0].ToLower() : "keep";
         bool afterProcessing = settings.ContainsKey("after");
 
-        ConcurrentBag<string> processedFiles = new();
+        ConcurrentBag<string> processedFiles = [];
         var semaphore = new SemaphoreSlim(9); // Limit to 9 concurrent tasks
 
         foreach (var fileType in value)
         {
-            AnsiConsole.MarkupLine($"[green3]Processing log type:[/] [yellow3_1]{fileType}[/]");
+            if (!QuietMode)
+            {
+                AnsiConsole.MarkupLine($"[green3]Processing log type:[/] [yellow3_1]{fileType}[/]");
+            }
 
             var logFiles = Directory.GetFiles(folderPath ?? @"C:\logs", $"{fileType}_*.txt")
                 .Select(file => new
@@ -77,8 +92,10 @@ internal partial class Program : ProgramBase
 
         if (afterProcessing)
         {
-            PostProcessFiles(processedFiles.ToList(), archivePath, postProcess);
+            PostProcessFiles([.. processedFiles], archivePath, postProcess);
         }
+
+        Environment.Exit(0);
     }
 
     private static async Task<bool> ProcessFileAsync(string file, IHost host, string? archivePath, string postProcess, bool afterProcessing, ConcurrentBag<string> processedFiles, SemaphoreSlim semaphore)
@@ -86,7 +103,10 @@ internal partial class Program : ProgramBase
         await semaphore.WaitAsync();
         try
         {
-            AnsiConsole.MarkupLine($"[green3]Processing file:[/] [yellow3_1]{file}[/]");
+            if (!QuietMode)
+            {
+                AnsiConsole.MarkupLine($"[green3]Processing file:[/] [yellow3_1]{file}[/]");
+            }
 
             using var scope = host.Services.CreateScope();
             var logFileProcessor = scope.ServiceProvider.GetRequiredService<LogFileProcessor>();
@@ -106,7 +126,10 @@ internal partial class Program : ProgramBase
             }
             else
             {
-                AnsiConsole.MarkupLine($"[red]Processing failed for file: [yellow3_1]{file}[/], skipping post-processing steps.[/]");
+                if (!QuietMode)
+                {
+                    AnsiConsole.MarkupLine($"[red]Processing failed for file: [yellow3_1]{file}[/], skipping post-processing steps.[/]");
+                }
             }
 
             return processSuccess;
@@ -124,11 +147,17 @@ internal partial class Program : ProgramBase
             case "archive":
                 string targetPath = Path.Combine(archivePath ?? @"C:\logs\archive", Path.GetFileName(file));
                 File.Move(file, targetPath);
-                AnsiConsole.MarkupLine($"[aqua]Archived file to:[/] [yellow3_1]{targetPath}[/]");
+                if (!QuietMode)
+                {
+                    AnsiConsole.MarkupLine($"[aqua]Archived file to:[/] [yellow3_1]{targetPath}[/]");
+                }
                 break;
             case "delete":
                 File.Delete(file);
-                AnsiConsole.MarkupLine($"[aqua]Deleted file:[/] [yellow3_1]{file}[/]");
+                if (!QuietMode)
+                {
+                    AnsiConsole.MarkupLine($"[aqua]Deleted file:[/] [yellow3_1]{file}[/]");
+                }
                 break;
             case "keep":
                 break;
@@ -165,8 +194,11 @@ internal partial class Program : ProgramBase
         .ConfigureLogging(logging =>
         {
             logging.ClearProviders();
-            logging.AddConsole();
-            logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
+            if (!QuietMode)
+            {
+                logging.AddConsole();
+                logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
+            }
         });
 
     [GeneratedRegex(@"^.*?_(\d+)\.txt$")]
