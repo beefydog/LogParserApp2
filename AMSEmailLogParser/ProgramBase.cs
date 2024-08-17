@@ -1,4 +1,4 @@
-﻿namespace LogParserApp;
+﻿namespace AMSEmailLogParser;
 
 public class ProgramBase
 {
@@ -46,7 +46,7 @@ public class ProgramBase
         // Add support for the 'quiet mode' argument
         if (settings.TryGetValue("q", out List<string>? value4) && value4.Count == 0)
         {
-            settings["q"] = ["true"]; // Indicate that the 'q' argument is present
+            settings["q"] = ["true"]; 
         }
 
         return settings;

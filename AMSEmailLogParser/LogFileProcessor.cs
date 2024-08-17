@@ -5,17 +5,17 @@ using System.Security;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using EFCore.BulkExtensions;
-using LogParserApp.Entities;
-using LogParserApp.Utilities;
-using static LogParserApp.Utilities.Extensions;
-using static LogParserApp.Utilities.Formatting;
+using AMSEmailLogParser.Entities;
+using AMSEmailLogParser.Utilities;
+using static AMSEmailLogParser.Utilities.Extensions;
+using static AMSEmailLogParser.Utilities.Formatting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
-using LogParserApp.Data;
+using AMSEmailLogParser.Data;
 
 
-namespace LogParserApp
+namespace AMSEmailLogParser
 {
     public partial class LogFileProcessor(LogDbContext dbContext, ILogger<LogFileProcessor> logger)
     {
@@ -142,24 +142,24 @@ namespace LogParserApp
         }
 
 
-        private async Task<bool> LogAlreadyProcessedAsync(string? fileName)
+        public async Task<bool> LogAlreadyProcessedAsync(string? fileName)
         {
             return fileName != null && await _dbContext.ParsedLogs.AsNoTracking().AnyAsync(l => l.FileName == fileName);
         }
 
-        private static string ExtractFileType(string fileNameNoExt)
+        public static string ExtractFileType(string fileNameNoExt)
         {
             var match = FileTypeRegex().Match(fileNameNoExt);
             return match.Success ? match.Groups[1].Value : "unknown";
         }
 
-        private static int ExtractLogFileId(string fileNameNoExt)
+        public static int ExtractLogFileId(string fileNameNoExt)
         {
             var match = FileIdRegex().Match(fileNameNoExt);
             return match.Success ? int.Parse(match.Groups[1].Value) : 0;
         }
 
-        private static LogEntry? ParseLine(string line, int parsedLogId, int lineNum)
+        public static LogEntry? ParseLine(string line, int parsedLogId, int lineNum)
         {
             try
             {
@@ -205,7 +205,7 @@ namespace LogParserApp
             }
         }
 
-        
+
         [GeneratedRegex(@"^(.*?)_\d+$")]
         private static partial Regex FileTypeRegex();
 

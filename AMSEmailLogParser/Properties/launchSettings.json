@@ -1,6 +1,6 @@
 ﻿{
   "profiles": {
-    "LogParserApp": {
+    "AMSEmailLogParser": {
       "commandName": "Project",
       "commandLineArgs": "",
       "environmentVariables": {

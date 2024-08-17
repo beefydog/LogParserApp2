@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace LogParserApp.Entities;
+namespace AMSEmailLogParser.Entities;
 public class ParsingError
 {
     public int Id { get; set; }

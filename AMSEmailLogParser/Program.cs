@@ -1,4 +1,4 @@
-﻿namespace LogParserApp;
+﻿namespace AMSEmailLogParser;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -8,15 +8,17 @@ using System.IO;
 using Microsoft.EntityFrameworkCore;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
-using LogParserApp.Data;
-using LogParserApp.Utilities;
+using AMSEmailLogParser.Data;
+using AMSEmailLogParser.Utilities;
 using Spectre.Console;
 using System.Collections.Concurrent;
 using System.Threading;
 using NetTopologySuite.Index.Quadtree;
 using System.Runtime.CompilerServices;
+using AMSEmailLogParser.Entities;
+using System.Diagnostics;
 
-internal partial class Program : ProgramBase
+public partial class Program : ProgramBase
 {
     public static bool QuietMode { get; set; } = false;
 
@@ -26,7 +28,7 @@ internal partial class Program : ProgramBase
 
         QuietMode = settings.ContainsKey("q");
 
-        if (!settings.TryGetValue("filetype", out List<string>? value) || value.Count == 0) 
+        if (!settings.TryGetValue("filetype", out List<string>? value) || value.Count == 0)
         {
             AnsiConsole.MarkupLine("Please specify at least one filetype using [green3]-filetype \"[gold3]smtp[/],[gold3]pop3[/]\"[/].");
             AnsiConsole.MarkupLine("Valid log file types: [gold3]accounts[/],[gold3]contentfiltering[/],[gold3]imap4[/],[gold3]outmail[/],[gold3]outmailfail[/],[gold3]pop3[/],[gold3]pop3retr[/],[gold3]remoteadmin[/],[gold3]server[/],[gold3]smtp[/],[gold3]webmail[/]");
@@ -43,7 +45,7 @@ internal partial class Program : ProgramBase
             AnsiConsole.MarkupLine("[green3]-postprocess \"[gold3]archive[/]\" \"[yellow3_1]C:\\MyLogArchive[/]\" -after[/]");
             Console.WriteLine();
             AnsiConsole.MarkupLine("Example with all options specified:");
-            AnsiConsole.MarkupLine("[green4]LogParserApp[/] [green3]-filetype \"[gold3]smtp[/],[gold3]pop3[/],[gold3]imap4[/]\" [green3]-folderpath \"[yellow3_1]C:\\MyEmailLogs[/]\" [/] -postprocess \"[gold3]archive[/]\" \"[yellow3_1]C:\\MyLogArchive[/]\" -after[/]");
+            AnsiConsole.MarkupLine("[green4]AMSEmailLogParser[/] [green3]-filetype \"[gold3]smtp[/],[gold3]pop3[/],[gold3]imap4[/]\" [green3]-folderpath \"[yellow3_1]C:\\MyEmailLogs[/]\" [/] -postprocess \"[gold3]archive[/]\" \"[yellow3_1]C:\\MyLogArchive[/]\" -after[/]");
             AnsiConsole.MarkupLine("This would process [gold3]smtp[/], [gold3]pop3[/] and [gold3]imap4[/] logs, archive them and do so after files parsed successfully.");
             Console.WriteLine();
             AnsiConsole.MarkupLine("The default archive folder path can be specified in the [yellow3_1]appsettings.json[/] file");
@@ -67,7 +69,7 @@ internal partial class Program : ProgramBase
         bool afterProcessing = settings.ContainsKey("after");
 
         ConcurrentBag<string> processedFiles = [];
-        var semaphore = new SemaphoreSlim(9); // Limit to 9 concurrent tasks
+        var semaphore = new SemaphoreSlim(9); // Limit to 9 concurrent tasks - I tweaked this for a 6 year old quad core machine
 
         foreach (var fileType in value)
         {
@@ -98,49 +100,59 @@ internal partial class Program : ProgramBase
         Environment.Exit(0);
     }
 
-    private static async Task<bool> ProcessFileAsync(string file, IHost host, string? archivePath, string postProcess, bool afterProcessing, ConcurrentBag<string> processedFiles, SemaphoreSlim semaphore)
+
+public static async Task<bool> ProcessFileAsync(string file, IHost host, string? archivePath, string postProcess, bool afterProcessing, ConcurrentBag<string> processedFiles, SemaphoreSlim semaphore)
+{
+    await semaphore.WaitAsync();
+    try
     {
-        await semaphore.WaitAsync();
-        try
+        if (!QuietMode)
         {
-            if (!QuietMode)
+            AnsiConsole.MarkupLine($"[green3]Processing file:[/] [yellow3_1]{file}[/]");
+        }
+
+        using var scope = host.Services.CreateScope();
+        var logFileProcessor = scope.ServiceProvider.GetRequiredService<LogFileProcessor>();
+
+        var processSuccess = await logFileProcessor.ProcessLogFileAsync(file);
+
+        Debug.WriteLine($"[DEBUG] ProcessSuccess: {processSuccess}");
+
+        if (processSuccess)
+        {
+            if (afterProcessing)
             {
-                AnsiConsole.MarkupLine($"[green3]Processing file:[/] [yellow3_1]{file}[/]");
-            }
-
-            using var scope = host.Services.CreateScope();
-            var logFileProcessor = scope.ServiceProvider.GetRequiredService<LogFileProcessor>();
-
-            var processSuccess = await logFileProcessor.ProcessLogFileAsync(file);
-
-            if (processSuccess)
-            {
-                if (afterProcessing)
-                {
-                    processedFiles.Add(file);
-                }
-                else
-                {
-                    PostProcessFile(file, archivePath, postProcess);
-                }
+                processedFiles.Add(file);
             }
             else
             {
-                if (!QuietMode)
-                {
-                    AnsiConsole.MarkupLine($"[red]Processing failed for file: [yellow3_1]{file}[/], skipping post-processing steps.[/]");
-                }
+                PostProcessFile(file, archivePath, postProcess);
             }
-
-            return processSuccess;
         }
-        finally
+        else
         {
-            semaphore.Release();
+            if (!QuietMode)
+            {
+                AnsiConsole.MarkupLine($"[red]Processing failed for file: [yellow3_1]{file}[/], skipping post-processing steps.[/]");
+            }
         }
-    }
 
-    private static void PostProcessFile(string file, string? archivePath, string postProcess)
+        return processSuccess;
+    }
+    catch (Exception ex)
+    {
+        Debug.WriteLine($"[ERROR] Exception: {ex.Message}");
+        return false;
+    }
+    finally
+    {
+        semaphore.Release();
+    }
+}
+
+
+
+public static void PostProcessFile(string file, string? archivePath, string postProcess)
     {
         switch (postProcess)
         {
@@ -166,7 +178,7 @@ internal partial class Program : ProgramBase
         }
     }
 
-    private static void PostProcessFiles(List<string> files, string? archivePath, string postProcess)
+    public static void PostProcessFiles(List<string> files, string? archivePath, string postProcess)
     {
         foreach (var file in files)
         {
@@ -174,32 +186,32 @@ internal partial class Program : ProgramBase
         }
     }
 
-    static IHostBuilder CreateHostBuilder(string[] args) =>
-    Host.CreateDefaultBuilder(args)
-        .ConfigureAppConfiguration((hostingContext, config) =>
-        {
-            config.SetBasePath(Directory.GetCurrentDirectory());
-            config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
-        })
-        .ConfigureServices((hostContext, services) =>
-        {
-            services.AddDbContext<LogDbContext>(options =>
-                options.UseSqlServer(hostContext.Configuration.GetConnectionString("DefaultConnection")));
+    public static IHostBuilder CreateHostBuilder(string[] args) =>
+      Host.CreateDefaultBuilder(args)
+          .ConfigureAppConfiguration((hostingContext, config) =>
+          {
+              config.SetBasePath(Directory.GetCurrentDirectory());
+              config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+          })
+          .ConfigureServices((hostContext, services) =>
+          {
+              services.AddDbContext<LogDbContext>(options =>
+                  options.UseSqlServer(hostContext.Configuration.GetConnectionString("DefaultConnection")));
 
-            services.AddScoped<LogFileProcessor>();
-            services.AddLogging();
+              services.AddScoped<LogFileProcessor>();
+              services.AddLogging();
 
-            services.AddSingleton<IConfiguration>(hostContext.Configuration);
-        })
-        .ConfigureLogging(logging =>
-        {
-            logging.ClearProviders();
-            if (!QuietMode)
-            {
-                logging.AddConsole();
-                logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
-            }
-        });
+              services.AddSingleton<IConfiguration>(hostContext.Configuration);
+          })
+          .ConfigureLogging(logging =>
+          {
+              logging.ClearProviders();
+              if (!QuietMode)
+              {
+                  logging.AddConsole();
+                  logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
+              }
+          });
 
     [GeneratedRegex(@"^.*?_(\d+)\.txt$")]
     private static partial Regex OrderKeyRegex();

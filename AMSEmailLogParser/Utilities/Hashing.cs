@@ -5,7 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace LogParserApp.Utilities;
+namespace AMSEmailLogParser.Utilities;
 public static class Hashing
 {
     public static async Task<string> ComputeSha256HashAsync(string filePath)
